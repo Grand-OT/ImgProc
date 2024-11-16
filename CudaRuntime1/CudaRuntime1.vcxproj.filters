@@ -1,0 +1,17 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CudaCompile Include="kernel.cu" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Image.h" />
+    <ClInclude Include="ImageFloatConverter.h" />
+    <ClInclude Include="KernelGenerator.h" />
+    <ClInclude Include="ReadWriteImg.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="ImageFloatConverter.cpp" />
+    <ClCompile Include="KernelGenerator.cpp" />
+    <ClCompile Include="ReadWriteImg.cpp" />
+  </ItemGroup>
+</Project>
