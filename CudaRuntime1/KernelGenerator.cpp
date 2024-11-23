@@ -55,3 +55,10 @@ Kernel KernelGenerator::generateEdgeKernel() const
 
     return { 3, data };
 }
+//
+//float Kernel::operator()(const int x, const int y) const
+//{
+//    const int x_ = x + size / 2;
+//    const int y_ = y + size / 2;
+//    return data[y_ * size + x_];
+//}

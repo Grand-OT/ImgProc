@@ -43,7 +43,7 @@ Image<byte> ReadWriteImg::readImage(const std::string& imgPath) const
     fclose(file);
     png_destroy_read_struct(&png, &info, NULL);
 
-    return { width, height, channels, pixels };
+    return { width, height, channels, 0, 0, pixels };
 }
 
 bool ReadWriteImg::writeImage(Image<byte> img, const std::string& imgPath) const
