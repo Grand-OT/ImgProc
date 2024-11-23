@@ -6,12 +6,12 @@
 #include "ReadWriteImg.h"
 #include <algorithm>
 #include <cuda_runtime_api.h>
+#include <filesystem>
 #include <mutex>
 #include <stdio.h>
 #include <texture_fetch_functions.h>
 #include <texture_types.h>
 #include <thread>
-
 
 #define INITIALIZE_ENTITIES(i)  auto& img = images[i]; \
                                 auto& resImg = resImages[i]; \
@@ -235,138 +235,12 @@ void convSh(const Image<byte> source, Image<byte> res, const Kernel kernel)
     }
 }
 
-
+void handleConvolutionSize(int size);
 
 int main()
 {
-    int deviceCount;
-    cudaGetDeviceCount(&deviceCount);
-    deviceCount = 5;
-    ReadWriteImg reader;
-    const std::string base = "C:\\Users\\User\\Documents\\Study\\GPU\\ImgProc";
-    const std::string img_input_name = "test.png";
-    const std::string img_output_name = "res.png";
-    auto _img = reader.readImage(base + '\\' + img_input_name);
-    
-    auto _resImg = _img.createSimilar();
-    Kernel ker = KernelGenerator().generateBlurKernel(11);
-    auto images = _img.splitWithOverlap(deviceCount, ker.size / 2);
-    auto resImages = _resImg.splitImage(deviceCount);
-
-    std::vector<byte*> imgDs, resDs;
-    std::vector<float*> kernelDs;
-    std::vector<dim3> blockDims, gridDims;
-    std::vector<unsigned> memSizes;
-    std::vector<DimParams> dimParamsS;
-    std::vector<cudaTextureObject_t> texObjs;
-
-    for (int i = 0; i < deviceCount; ++i)
-    {
-        imgDs.emplace_back();
-        resDs.emplace_back();
-        kernelDs.emplace_back();
-        blockDims.emplace_back();
-        gridDims.emplace_back();
-        memSizes.emplace_back();
-        dimParamsS.emplace_back();
-        texObjs.emplace_back();
-        INITIALIZE_ENTITIES(i);
-        cudaSetDevice(0);
-
-        
-        cudaMalloc(&imgD, img.getSize());
-        cudaMemcpy(imgD, img.data, img.getSize(), cudaMemcpyHostToDevice);
-
-        cudaMalloc(&resD, img.getSize());
-
-        unsigned size2 = ker.size * ker.size * sizeof(float);
-        cudaMalloc(&kernelD, size2);
-        auto res = cudaMemcpy(kernelD, ker.data, size2, cudaMemcpyHostToDevice);
-
-        unsigned numOfThreadsPerDim = 32;
-
-        texObj = create3DTextureObject(img);
-        
-        blockDim.x = std::min(numOfThreadsPerDim, img.width);
-        blockDim.y = std::min(numOfThreadsPerDim, img.height);
-        gridDim.x = (img.width + blockDim.x - 1) / blockDim.x;
-        gridDim.y = (img.height + blockDim.y - 1) / blockDim.y;
-        gridDim.z = img.channels;
-
-        memSize = (numOfThreadsPerDim + ker.size - 1) *
-            (numOfThreadsPerDim + ker.size - 1) * sizeof(byte) +
-            size2;
-
-        cudaDeviceProp deviceProp;
-        cudaGetDeviceProperties(&deviceProp, i);
-        if (memSize > deviceProp.sharedMemPerBlock)
-        {
-            printf("Not enough shared memory\n");
-            return 1;
-        }
-        
-        dimParams.blockDim = blockDim;
-        dimParams.gridDim = gridDim;
-    }
-    std::vector<std::thread> workers;
-    std::vector<std::mutex> mutexes(deviceCount);
-    for (int i = 0; i < deviceCount; ++i)
-    {
-        workers.emplace_back([&, i]() {
-            auto& img = images[i];
-            auto& resImg = resImages[i];
-            auto& imgD = imgDs[i];
-            auto& resD = resDs[i];
-            auto& kernelD = kernelDs[i];
-            auto& blockDim = blockDims[i];
-            auto& gridDim = gridDims[i];
-            auto& memSize = memSizes[i];
-            auto& dimParams = dimParamsS[i];
-            auto& texObj = texObjs[i];
-            cudaSetDevice(0);
-            std::unique_lock<std::mutex> lk(mutexes[0]);
-            //test common memory convolution
-            Image<byte> sourceD = img;
-            sourceD.data = imgD;
-            auto resImgD = resImg;
-            resImgD.data = resD;
-            auto kerD = ker;
-            kerD.data = kernelD;
-            float elapsedTimeCommonMemory = testKernel(conv, dimParams, sourceD, resImgD, kerD);
-            printf("Elapsed time for common memory %d: %f\n", i, elapsedTimeCommonMemory);
-
-            //test texture memory convolution
-            elapsedTimeCommonMemory = testKernel(convTex, dimParams, texObj, img.botPad, img.width,
-                img.height, img.channels, resImgD, kerD);
-            printf("Elapsed time for texture memory %d: %f\n", i, elapsedTimeCommonMemory);
-
-            ////test shared memory convolution
-            elapsedTimeCommonMemory = testKernel(convShKernel, dimParams, sourceD, resImgD, kerD);
-            printf("Elapsed time for shared kernel %d: %f\n", i, elapsedTimeCommonMemory);
-
-            ////test shared memory convolution
-            dimParams.sharedMemSize = memSize;
-            float elapsedTimeCommonMemory = testKernel(convSh, dimParams, sourceD, resImgD, kerD);
-            printf("Elapsed time for shared memory %d: %f\n", i, elapsedTimeCommonMemory);
-
-
-            cudaMemcpy(resImg.data, resD, resImg.getSize(), cudaMemcpyDeviceToHost);
-
-            cudaFree(imgD);
-            cudaFree(resD);
-            cudaFree(kernelD);
-            cudaDestroyTextureObject(texObj);
-            });
-    }
-
-    for (int i = 0; i < deviceCount; ++i)
-        workers[i].join();
-    //auto resImg = _img;
-    reader.writeImage(_resImg, base + '\\' + img_output_name);
-    _resImg.clear();
-    _img.clear();
-    free(ker.data);
-    return 0;
+    handleConvolutionSize(3);
+    handleConvolutionSize(7);
 }
 
 std::pair<Image<byte>::Images, Image<byte>::Images> splitImages(const Image<byte>& src, const Image<byte>& dest, int devCount)
@@ -429,6 +303,145 @@ cudaTextureObject_t create3DTextureObject(const Image<byte>& img) {
     cudaCreateTextureObject(&texObject, &resDesc, &texDesc, nullptr);
 
     return texObject;
+}
+
+void handleConvolutionSize(int size)
+{
+    int deviceCount;
+    cudaGetDeviceCount(&deviceCount);
+    deviceCount = 5;
+    ReadWriteImg reader;
+    //const std::string base = "C:\\Users\\User\\Documents\\Study\\GPU\\ImgProc";
+    const std::string base = "..\\";  // Получаем базовую директорию
+    const std::string img_input_name = "test.png";
+    const std::string img_output_name = "res.png";
+
+    std::string full_path_to_image = base + img_input_name;
+    std::string full_path_to_result = base + img_output_name;
+
+    // Используем полный путь к изображению
+    auto _img = reader.readImage(full_path_to_image);
+
+    auto _resImg = _img.createSimilar();
+    Kernel ker = KernelGenerator().generateBlurKernel(size);
+    //Kernel ker = KernelGenerator().generateEdgeKernel();
+    auto images = _img.splitWithOverlap(deviceCount, ker.size / 2);
+    auto resImages = _resImg.splitImage(deviceCount);
+
+    std::vector<byte*> imgDs, resDs;
+    std::vector<float*> kernelDs;
+    std::vector<dim3> blockDims, gridDims;
+    std::vector<unsigned> memSizes;
+    std::vector<DimParams> dimParamsS;
+    std::vector<cudaTextureObject_t> texObjs;
+
+    for (int i = 0; i < deviceCount; ++i)
+    {
+        imgDs.emplace_back();
+        resDs.emplace_back();
+        kernelDs.emplace_back();
+        blockDims.emplace_back();
+        gridDims.emplace_back();
+        memSizes.emplace_back();
+        dimParamsS.emplace_back();
+        texObjs.emplace_back();
+        INITIALIZE_ENTITIES(i);
+        cudaSetDevice(0);
+
+
+        cudaMalloc(&imgD, img.getSize());
+        cudaMemcpy(imgD, img.data, img.getSize(), cudaMemcpyHostToDevice);
+
+        cudaMalloc(&resD, img.getSize());
+
+        unsigned size2 = ker.size * ker.size * sizeof(float);
+        cudaMalloc(&kernelD, size2);
+        auto res = cudaMemcpy(kernelD, ker.data, size2, cudaMemcpyHostToDevice);
+
+        unsigned numOfThreadsPerDim = 32;
+
+        texObj = create3DTextureObject(img);
+
+        blockDim.x = std::min(numOfThreadsPerDim, img.width);
+        blockDim.y = std::min(numOfThreadsPerDim, img.height);
+        gridDim.x = (img.width + blockDim.x - 1) / blockDim.x;
+        gridDim.y = (img.height + blockDim.y - 1) / blockDim.y;
+        gridDim.z = img.channels;
+
+        memSize = (numOfThreadsPerDim + ker.size - 1) *
+            (numOfThreadsPerDim + ker.size - 1) * sizeof(byte) +
+            size2;
+
+        cudaDeviceProp deviceProp;
+        cudaGetDeviceProperties(&deviceProp, i);
+        if (memSize > deviceProp.sharedMemPerBlock)
+        {
+            printf("Not enough shared memory\n");
+            return;
+        }
+
+        dimParams.blockDim = blockDim;
+        dimParams.gridDim = gridDim;
+    }
+    std::vector<std::thread> workers;
+    std::vector<std::mutex> mutexes(deviceCount);
+    for (int i = 0; i < deviceCount; ++i)
+    {
+        workers.emplace_back([&, i]() {
+            auto& img = images[i];
+            auto& resImg = resImages[i];
+            auto& imgD = imgDs[i];
+            auto& resD = resDs[i];
+            auto& kernelD = kernelDs[i];
+            auto& blockDim = blockDims[i];
+            auto& gridDim = gridDims[i];
+            auto& memSize = memSizes[i];
+            auto& dimParams = dimParamsS[i];
+            auto& texObj = texObjs[i];
+            cudaSetDevice(0);
+            std::unique_lock<std::mutex> lk(mutexes[0]);
+            //test common memory convolution
+            Image<byte> sourceD = img;
+            sourceD.data = imgD;
+            auto resImgD = resImg;
+            resImgD.data = resD;
+            auto kerD = ker;
+            kerD.data = kernelD;
+            float elapsedTimeCommonMemory = testKernel(conv, dimParams, sourceD, resImgD, kerD);
+            printf("Elapsed time for common memory %d: %f\n", i, elapsedTimeCommonMemory);
+
+            //test texture memory convolution
+            elapsedTimeCommonMemory = testKernel(convTex, dimParams, texObj, img.botPad, img.width,
+                img.height, img.channels, resImgD, kerD);
+            printf("Elapsed time for texture memory %d: %f\n", i, elapsedTimeCommonMemory);
+
+            ////test shared memory convolution
+            elapsedTimeCommonMemory = testKernel(convShKernel, dimParams, sourceD, resImgD, kerD);
+            printf("Elapsed time for shared kernel %d: %f\n", i, elapsedTimeCommonMemory);
+
+            ////test shared memory convolution
+            dimParams.sharedMemSize = memSize;
+            elapsedTimeCommonMemory = testKernel(convSh, dimParams, sourceD, resImgD, kerD);
+            printf("Elapsed time for shared memory %d: %f\n", i, elapsedTimeCommonMemory);
+
+
+            cudaMemcpy(resImg.data, resD, resImg.getSize(), cudaMemcpyDeviceToHost);
+
+            cudaFree(imgD);
+            cudaFree(resD);
+            cudaFree(kernelD);
+            cudaDestroyTextureObject(texObj);
+            });
+    }
+
+    for (int i = 0; i < deviceCount; ++i)
+        workers[i].join();
+    //auto resImg = _img;
+    reader.writeImage(_resImg, (base + img_output_name));
+    _resImg.clear();
+    _img.clear();
+    free(ker.data);
+    return;
 }
 
 /*#include "cuda_runtime.h"
