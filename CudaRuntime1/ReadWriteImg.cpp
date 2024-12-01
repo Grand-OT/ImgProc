@@ -31,7 +31,6 @@ Image<byte> ReadWriteImg::readImage(const std::string& imgPath) const
     unsigned bit_depth = png_get_bit_depth(png, info);
     unsigned channels = png_get_channels(png, info);
 
-    float* pixels_float = (float*)malloc(width * height * channels * sizeof(float));
     png_bytep pixels = (png_bytep)malloc(width * height * channels * sizeof(png_bytep));
     std::vector<png_bytep> row_pointers(height);
     for (unsigned y = 0; y < height; y++) {

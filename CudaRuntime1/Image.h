@@ -21,8 +21,8 @@ struct Image
 	Images splitImage(int nParts) const;
 	Images splitWithOverlap(int nParts, int overlap);
 	void constructFromParts(const Images& images);
-	__host__ __device__ inline const T operator()(const unsigned x, const unsigned y, const unsigned ch) const;
-	__host__ __device__ inline T& operator()(const unsigned x, const unsigned y, const unsigned ch);
+	__host__ __device__ inline const T operator()(const unsigned x, const unsigned y, const unsigned ch) const noexcept;
+	__host__ __device__ inline T& operator()(const unsigned x, const unsigned y, const unsigned ch) noexcept;
 	unsigned getSize() const;
 };
 
@@ -134,13 +134,13 @@ inline void Image<T>::constructFromParts(const Images& images)
 }
 
 template<typename T>
-inline const T Image<T>::operator()(const unsigned x, const unsigned y, const unsigned ch) const
+inline const T Image<T>::operator()(const unsigned x, const unsigned y, const unsigned ch) const noexcept
 {
 	return data[(y * width + x) * channels + ch];
 }
 
 template<typename T>
-inline T& Image<T>::operator()(const unsigned x, const unsigned y, const unsigned ch)
+inline T& Image<T>::operator()(const unsigned x, const unsigned y, const unsigned ch) noexcept
 {
 	return data[(y * width + x) * channels + ch];
 }

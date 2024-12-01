@@ -7,6 +7,9 @@
 #include <algorithm>
 #include <cuda_runtime_api.h>
 #include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <map>
 #include <mutex>
 #include <stdio.h>
 #include <texture_fetch_functions.h>
@@ -29,6 +32,17 @@ struct DimParams
     dim3 gridDim, blockDim;
     unsigned sharedMemSize = 0;
 };
+
+struct Measurements
+{
+    using MeasRes = std::map<int, double>;
+    std::mutex mtx;
+    MeasRes meas[4];
+};
+
+Measurements results[2];
+
+void writeToFile(const std::string& filename);
 
 template <class KerType, class... KerArgs>
 float testKernel(KerType ker, const DimParams& dimParams, KerArgs&&... _Args)
@@ -148,7 +162,7 @@ void convShKernel(const Image<byte> source, Image<byte> res, const Kernel kernel
         for (int cx = -kernelSize / 2; cx < kernelSize / 2 + 1; ++cx) {
             for (int cy = -kernelSize / 2; cy < kernelSize / 2 + 1; ++cy) {
                 if (x + cx >= 0 && x + cx < source.width && y + cy >= 0 && y + cy < source.height) {
-                    int kernelIdx = (cy + kernel.size / 2) * kernel.size + cx + kernel.size / 2;
+                    const int kernelIdx = (cy + kernel.size / 2) * kernel.size + cx + kernel.size / 2;
                     sum += kernelSh[kernelIdx] * source(x + cx, y + cy, ch);
                 }
             }
@@ -235,12 +249,31 @@ void convSh(const Image<byte> source, Image<byte> res, const Kernel kernel)
     }
 }
 
+int deviceCount;
+
 void handleConvolutionSize(int size);
+
+
 
 int main()
 {
+    cudaGetDeviceCount(&deviceCount);
+    deviceCount = 1;
     handleConvolutionSize(3);
+    handleConvolutionSize(5);
     handleConvolutionSize(7);
+    handleConvolutionSize(11);
+    handleConvolutionSize(13);
+    handleConvolutionSize(15);
+    handleConvolutionSize(17);
+    handleConvolutionSize(19);
+    handleConvolutionSize(21);
+    handleConvolutionSize(23);
+    handleConvolutionSize(25);
+    handleConvolutionSize(27);
+    handleConvolutionSize(29);
+    handleConvolutionSize(31);
+    writeToFile("..\\results.txt");
 }
 
 std::pair<Image<byte>::Images, Image<byte>::Images> splitImages(const Image<byte>& src, const Image<byte>& dest, int devCount)
@@ -307,11 +340,8 @@ cudaTextureObject_t create3DTextureObject(const Image<byte>& img) {
 
 void handleConvolutionSize(int size)
 {
-    int deviceCount;
-    cudaGetDeviceCount(&deviceCount);
-    deviceCount = 5;
+    
     ReadWriteImg reader;
-    //const std::string base = "C:\\Users\\User\\Documents\\Study\\GPU\\ImgProc";
     const std::string base = "..\\";  // Получаем базовую директорию
     const std::string img_input_name = "test.png";
     const std::string img_output_name = "res.png";
@@ -346,7 +376,7 @@ void handleConvolutionSize(int size)
         dimParamsS.emplace_back();
         texObjs.emplace_back();
         INITIALIZE_ENTITIES(i);
-        cudaSetDevice(0);
+        cudaSetDevice(i);
 
 
         cudaMalloc(&imgD, img.getSize());
@@ -398,7 +428,7 @@ void handleConvolutionSize(int size)
             auto& memSize = memSizes[i];
             auto& dimParams = dimParamsS[i];
             auto& texObj = texObjs[i];
-            cudaSetDevice(0);
+            cudaSetDevice(i);
             std::unique_lock<std::mutex> lk(mutexes[0]);
             //test common memory convolution
             Image<byte> sourceD = img;
@@ -407,24 +437,32 @@ void handleConvolutionSize(int size)
             resImgD.data = resD;
             auto kerD = ker;
             kerD.data = kernelD;
-            float elapsedTimeCommonMemory = testKernel(conv, dimParams, sourceD, resImgD, kerD);
-            printf("Elapsed time for common memory %d: %f\n", i, elapsedTimeCommonMemory);
+            float elapsedTimeCommonMemory1 = testKernel(conv, dimParams, sourceD, resImgD, kerD);
+            printf("Elapsed time for common memory %d: %f\n", i, elapsedTimeCommonMemory1);
 
             //test texture memory convolution
-            elapsedTimeCommonMemory = testKernel(convTex, dimParams, texObj, img.botPad, img.width,
+            float elapsedTimeCommonMemory2 = testKernel(convTex, dimParams, texObj, img.botPad, img.width,
                 img.height, img.channels, resImgD, kerD);
-            printf("Elapsed time for texture memory %d: %f\n", i, elapsedTimeCommonMemory);
+            printf("Elapsed time for texture memory %d: %f\n", i, elapsedTimeCommonMemory2);
 
             ////test shared memory convolution
-            elapsedTimeCommonMemory = testKernel(convShKernel, dimParams, sourceD, resImgD, kerD);
-            printf("Elapsed time for shared kernel %d: %f\n", i, elapsedTimeCommonMemory);
+            float elapsedTimeCommonMemory3 = testKernel(convShKernel, dimParams, sourceD, resImgD, kerD);
+            printf("Elapsed time for shared kernel %d: %f\n", i, elapsedTimeCommonMemory3);
 
             ////test shared memory convolution
             dimParams.sharedMemSize = memSize;
-            elapsedTimeCommonMemory = testKernel(convSh, dimParams, sourceD, resImgD, kerD);
-            printf("Elapsed time for shared memory %d: %f\n", i, elapsedTimeCommonMemory);
+            float elapsedTimeCommonMemory4 = testKernel(convSh, dimParams, sourceD, resImgD, kerD);
+            printf("Elapsed time for shared memory %d: %f\n", i, elapsedTimeCommonMemory4);
 
 
+
+            {
+                std::unique_lock<std::mutex> lk(results[i].mtx);
+                results[i].meas[0][kerD.size] = elapsedTimeCommonMemory1;
+                results[i].meas[1][kerD.size] = elapsedTimeCommonMemory2;
+                results[i].meas[2][kerD.size] = elapsedTimeCommonMemory3;
+                results[i].meas[3][kerD.size] = elapsedTimeCommonMemory4;
+            }
             cudaMemcpy(resImg.data, resD, resImg.getSize(), cudaMemcpyDeviceToHost);
 
             cudaFree(imgD);
@@ -437,113 +475,32 @@ void handleConvolutionSize(int size)
     for (int i = 0; i < deviceCount; ++i)
         workers[i].join();
     //auto resImg = _img;
-    reader.writeImage(_resImg, (base + img_output_name));
+    //reader.writeImage(_resImg, (base + img_output_name));
     _resImg.clear();
     _img.clear();
     free(ker.data);
     return;
 }
 
-/*#include "cuda_runtime.h"
-#include "device_launch_parameters.h"
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
-#include "ImageFloatConverter.h"
-#include "KernelGenerator.h"
-#include "ReadWriteImg.h"
-
-void checkCudaError(cudaError_t err, const char* msg) {
-    if (err != cudaSuccess) {
-        fprintf(stderr, "CUDA Error: %s (%s)\n", msg, cudaGetErrorString(err));
-        exit(EXIT_FAILURE);
-    }
-}
-
-// Измерение времени выполнения ядра
-float measureKernelExecution(
-    const dim3& gridDim, const dim3& blockDim,
-    void (*kernel)(...), void* args,
-    const char* kernelName) {
-
-    cudaEvent_t start, stop;
-    checkCudaError(cudaEventCreate(&start), "cudaEventCreate(start)");
-    checkCudaError(cudaEventCreate(&stop), "cudaEventCreate(stop)");
-
-    checkCudaError(cudaEventRecord(start, 0), "cudaEventRecord(start)");
-
-    // Запуск ядра
-    kernel << <gridDim, blockDim >> > (args);
-    checkCudaError(cudaGetLastError(), kernelName);
-
-    // Синхронизация
-    checkCudaError(cudaEventRecord(stop, 0), "cudaEventRecord(stop)");
-    checkCudaError(cudaEventSynchronize(stop), "cudaEventSynchronize");
-
-    float elapsedTime = 0.0f;
-    checkCudaError(cudaEventElapsedTime(&elapsedTime, start, stop), "cudaEventElapsedTime");
-
-    printf("Kernel '%s' execution time: %.2f ms\n", kernelName, elapsedTime);
-
-    // Освобождение ресурсов
-    cudaEventDestroy(start);
-    cudaEventDestroy(stop);
-
-    return elapsedTime;
-}
-
-int main() {
-    int deviceCount;
-    checkCudaError(cudaGetDeviceCount(&deviceCount), "cudaGetDeviceCount");
-
-    ReadWriteImg reader;
-    std::string base = "C:\\\\Users\\\\User\\\\Documents\\\\Study\\\\GPU\\\\ImgProc";
-    std::string img1_name = "test.png";
-    std::string img2_name = "res.png";
-
-    auto _img = reader.readImage(base + "\\" + img1_name);
-    auto images = _img.splitImage(deviceCount);
-    auto _resImg = _img.createSimilar();
-    auto resImages = _resImg.splitImage(deviceCount);
-
-    Kernel ker = KernelGenerator().generateBlurKernel(75);
-
-    for (int i = 0; i < deviceCount; ++i) {
-        cudaSetDevice(i);
-
-        auto& img = images[i];
-        auto& resImg = resImages[i];
-
-        byte* imgD, * resD;
-        float* kernelD;
-
-        checkCudaError(cudaMalloc(&imgD, img.getSize()), "cudaMalloc(imgD)");
-        checkCudaError(cudaMemcpy(imgD, img.data, img.getSize(), cudaMemcpyHostToDevice), "cudaMemcpy(imgD)");
-
-        checkCudaError(cudaMalloc(&resD, img.getSize()), "cudaMalloc(resD)");
-        checkCudaError(cudaMalloc(&kernelD, ker.size * ker.size * sizeof(float)), "cudaMalloc(kernelD)");
-        checkCudaError(cudaMemcpy(kernelD, ker.data, ker.size * ker.size * sizeof(float), cudaMemcpyHostToDevice), "cudaMemcpy(kernelD)");
-
-        dim3 blockDim(32, 32);
-        dim3 gridDim(
-            (img.width + blockDim.x - 1) / blockDim.x,
-            (img.height + blockDim.y - 1) / blockDim.y,
-            img.channels
-        );
-
-        // Пример вызова замера времени
-        measureKernelExecution(gridDim, blockDim, conv, { imgD, ... }, "conv");
-
-        checkCudaError(cudaMemcpy(resImg.data, resD, resImg.getSize(), cudaMemcpyDeviceToHost), "cudaMemcpy(resD)");
-
-        cudaFree(imgD);
-        cudaFree(resD);
-        cudaFree(kernelD);
+void writeToFile(const std::string& filename) {
+    std::ofstream outFile(filename);
+    if (!outFile) {
+        std::cerr << "Ошибка открытия файла для записи!" << std::endl;
+        return;
     }
 
-    reader.writeImage(_resImg, base + "\\" + img2_name);
-    _img.clear();
-    _resImg.clear();
-    return 0;
+    for (size_t i = 0; i < sizeof(results) / sizeof(Measurements); ++i) {
+        Measurements& currResults = results[i];
+        std::lock_guard<std::mutex> lock(currResults.mtx);
+
+        for (size_t j = 0; j < 4; ++j) {
+            const Measurements::MeasRes& measMap = currResults.meas[j];
+            for (const auto& entry : measMap) {
+                outFile << i << "," << j << "," << entry.first << "," << entry.second << std::endl;
+            }
+        }
+    }
+
+    outFile.close();
+    std::cout << "Данные успешно записаны в файл '" << filename << "'" << std::endl;
 }
-*/
