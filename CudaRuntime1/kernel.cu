@@ -89,11 +89,9 @@ void conv(const Image<byte> source, Image<byte> res, const Kernel kernel)
     {
         float sum = 0.0;
         const int kernelSize = kernel.size;
-        for (int cx = -kernelSize / 2; cx < kernelSize / 2 + 1; ++cx) {
-            for (int cy = -kernelSize / 2; cy < kernelSize / 2 + 1; ++cy) {
-                if (x + cx >= 0 && x + cx < source.width && y + cy >= 0 && y + cy < source.height) {
-                    sum += kernel(cx, cy) * source(x + cx, y + cy, ch);
-                }
+        for (int cx = max(-kernelSize / 2, -x); cx < min(kernelSize / 2 + 1, (int)source.width - x); ++cx) {
+            for (int cy = max(-kernelSize / 2, -y); cy < min(kernelSize / 2 + 1, (int)source.height - y); ++cy) {
+                sum += kernel(cx, cy) * source(x + cx, y + cy, ch);
             }
         }
         res(resx, resy, ch) = sum;
@@ -159,12 +157,10 @@ void convShKernel(const Image<byte> source, Image<byte> res, const Kernel kernel
         float sum = 0.0;
 
         const int kernelSize = kernel.size;
-        for (int cx = -kernelSize / 2; cx < kernelSize / 2 + 1; ++cx) {
-            for (int cy = -kernelSize / 2; cy < kernelSize / 2 + 1; ++cy) {
-                if (x + cx >= 0 && x + cx < source.width && y + cy >= 0 && y + cy < source.height) {
-                    const int kernelIdx = (cy + kernel.size / 2) * kernel.size + cx + kernel.size / 2;
-                    sum += kernelSh[kernelIdx] * source(x + cx, y + cy, ch);
-                }
+        for (int cx = max(-kernelSize / 2, -x); cx < min(kernelSize / 2 + 1, (int)source.width - x); ++cx) {
+            for (int cy = max(-kernelSize / 2, -y); cy < min(kernelSize / 2 + 1, (int)source.height - y); ++cy) {
+                const int kernelIdx = (cy + kernel.size / 2) * kernel.size + cx + kernel.size / 2;
+                sum += kernelSh[kernelIdx] * source(x + cx, y + cy, ch);
             }
         }
         res(resx, resy, ch) = sum;
@@ -258,7 +254,6 @@ void handleConvolutionSize(int size);
 int main()
 {
     cudaGetDeviceCount(&deviceCount);
-    deviceCount = 1;
     handleConvolutionSize(3);
     handleConvolutionSize(5);
     handleConvolutionSize(7);
